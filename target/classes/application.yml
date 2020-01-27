@@ -1,0 +1,35 @@
+#
+# Trusted and Transparent Voting Systems: Verify My Vote Demonstrator
+#
+# (c) University of Surrey 2018
+#
+
+#
+# Default application properties.
+#
+# @author Matthew Casey, Pervasive Intelligence Ltd
+#
+
+# Spring settings to set up the default environment.
+spring:
+  application:
+    name: "verify_my_vote"
+  messages:
+    basename: "messages/messages"
+    encoding: "UTF-8"
+  shell:
+    prompt: "VMV:> "
+    history:
+      file: ".${spring.application.name}.history"
+
+# Logging default settings.
+debug: false
+trace: false
+
+logging:
+  level:
+    root: "ERROR"
+    uk:
+      co:
+        pervasive_intelligence: "INFO"
+  file: "tmp/${spring.application.name}.log"

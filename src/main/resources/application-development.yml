@@ -1,0 +1,22 @@
+#
+# Trusted and Transparent Voting Systems: Verify My Vote Demonstrator
+#
+# (c) University of Surrey 2018
+#
+
+#
+# Development environment application properties.
+#
+# @author Matthew Casey, Pervasive Intelligence Ltd
+#
+
+# Spring settings to set up the development environment.
+spring:
+  profiles: "development"
+
+# Logging development settings.
+logging:
+  level:
+    uk:
+      co:
+        pervasive_intelligence: "DEBUG"

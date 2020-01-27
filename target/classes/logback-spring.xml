@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  - Trusted and Transparent Voting Systems: Verify My Vote Demonstrator
+  -
+  - (c) University of Surrey 2018
+  -->
+
+<!--
+  - Logback configuration file.
+  -
+  - @author Matthew Casey, Pervasive Intelligence Ltd
+  -->
+<configuration>
+  <!-- Include the defaults and relevant appenders. -->
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <include resource="org/springframework/boot/logging/logback/file-appender.xml"/>
+
+  <!-- Set up the appenders in the root. -->
+  <root level="DEBUG">
+    <appender-ref ref="FILE"/>
+  </root>
+</configuration>
