@@ -1,0 +1,95 @@
+#!/usr/bin/expect --
+
+#
+# Trusted and Transparent Voting Systems: Verify My Vote Demonstrator
+#
+# (c) University of Surrey 2019
+#
+
+#
+# Election encryption script.
+#
+# Completes the election process to encrypt the plaintext votes, then mix them.
+#
+# Requirements:
+# - "expect" installed
+# - chmod +x election_initialisation.exp election_common.exp
+# - teller 1 is assumed to be an ERS computer
+# - Verificatum and Java installed
+# - election_intialisation.exp already run
+#
+
+# Include common script.
+source election_common.exp
+
+# Define values from the command line.
+if {[llength $argv] < 7} {
+  send_user "Usage: election_encrypt.exp vmv_far_file ssh_key_file sftp_host sftp_user \"election_name\" number_of_tellers teller \[\"ers_plaintext_voters_file\"\] \[\"ers_encrypted_voters_file\"\]\n"
+  exit 1
+}
+
+set jar [lindex $argv 0]
+set ssh_key_file [lindex $argv 1]
+set sftp_host [lindex $argv 2]
+set sftp_user [lindex $argv 3]
+set election_name [lindex $argv 4]
+set number_of_tellers [lindex $argv 5]
+set teller [lindex $argv 6]
+
+if {$teller == 1} {
+  if {[llength $argv] < 9} {
+    send_user "Usage: election_encrypt.exp vmv_far_file ssh_key_file sftp_host sftp_user \"election_name\" number_of_tellers teller \"ers_plaintext_voters_file\" \"ers_encrypted_voters_file\"\n"
+    exit 1
+  }
+
+  set ers_plaintext_voters [lindex $argv 7]
+  set ers_encrypted_voters [lindex $argv 8]
+}
+
+# Start.
+send_user "Election: $election_name\n"
+send_user "Tellers: $number_of_tellers\n"
+send_user "Teller: $teller\n"
+
+if {$teller == 1} {
+  send_user "Voters Plaintext Import File: $ers_plaintext_voters\n"
+  send_user "Voters Encrypted Export File: $ers_encrypted_voters\n"
+}
+
+# Make sure the election directory exists.
+if {![file exists $election_name]} {
+  send_user "Election directory $election_name does not exist\n"
+  exit 1
+}
+
+cd "$election_name"
+
+# If this is teller 1, encrypt the plaintext votes.
+if {$teller == 1} {
+  send_user -- "- Encrypt Votes -----------------------------------------------------------------------------------------------\n"
+  exec cp "../$ers_plaintext_voters" ers-plaintext-voters.csv
+  download voters-keys.csv
+
+  set index 1
+  set files ""
+  while {$index <= $number_of_tellers} {
+    set file "commitments-$index.csv"
+    append files "$file "
+    download $file
+    set index [expr $index+1]
+  }
+  execute_vmv "encrypt-votes --election public-election-params.csv public-election-keys-$teller.csv --voters voters-keys.csv ers-plaintext-voters.csv --votes ers-vote-options.csv --commitments $files --output ers-encrypted-voters.csv --publish public-encrypted-voters.csv public-vote-options.csv encrypt-proofs.csv\r"
+
+  exec cp ers-encrypted-voters.csv "../$ers_encrypted_voters"
+  upload "public-encrypted-voters.csv" 0
+  upload "public-vote-options.csv" 0
+  upload "encrypt-proofs.csv" 0
+}
+
+# Mix votes.
+send_user -- "- Mix Votes ---------------------------------------------------------------------------------------------------\n"
+download "public-encrypted-voters.csv"
+download "public-vote-options.csv"
+execute_vmv "mix-votes --election public-election-params.csv election-keys-$teller.csv --votes public-vote-options.csv --tracker-numbers public-tracker-numbers.csv --voters public-encrypted-voters.csv --publish public-mixed-voters-$teller.csv mix-proofs-$teller.zip --teller $teller\r"
+upload "public-mixed-voters-$teller.csv" 0
+upload "mix-proofs-$teller.zip" 0

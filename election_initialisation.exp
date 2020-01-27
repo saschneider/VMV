@@ -1,0 +1,148 @@
+#!/usr/bin/expect --
+
+#
+# Trusted and Transparent Voting Systems: Verify My Vote Demonstrator
+#
+# (c) University of Surrey 2019
+#
+
+#
+# Election initialisation script.
+#
+# Creates a sub-directory with the name of the election to contain all of the election files and then executes the
+# election initialisation.
+#
+# Requirements:
+# - "expect" installed
+# - chmod +x election_initialisation.exp election_common.exp
+# - teller 1 is assumed to be an ERS computer
+# - Verificatum and Java installed
+#
+
+# Include common script.
+source election_common.exp
+
+# Define values from the command line.
+if {[llength $argv] < 11} {
+  send_user "Usage: election_initialisation.exp vmv_far_file ssh_key_file sftp_host sftp_user \"election_name\" number_of_tellers threshold_tellers teller teller_ip teller_main_port teller_hint_port \[number_of_voters\] \[\"ers_voters_file\"\] \[\"ers_associated_voters_file\"\]\n"
+  exit 1
+}
+
+set jar [lindex $argv 0]
+set ssh_key_file [lindex $argv 1]
+set sftp_host [lindex $argv 2]
+set sftp_user [lindex $argv 3]
+set election_name [lindex $argv 4]
+set number_of_tellers [lindex $argv 5]
+set threshold_tellers [lindex $argv 6]
+set teller [lindex $argv 7]
+set teller_ip [lindex $argv 8]
+set teller_main_port [lindex $argv 9]
+set teller_hint_port [lindex $argv 10]
+
+if {$teller == 1} {
+  if {[llength $argv] < 14} {
+    send_user "Usage: election_initialisation.exp vmv_far_file ssh_key_file sftp_host sftp_user \"election_name\" number_of_tellers threshold_tellers teller teller_ip teller_main_port teller_hint_port number_of_voters \"ers_voters_file\" \"ers_associated_voters_file\"\n"
+    exit 1
+  }
+
+  set number_of_voters [lindex $argv 11]
+  set ers_voters [lindex $argv 12]
+  set ers_associated_voters [lindex $argv 13]
+}
+
+# Start.
+send_user "Election: $election_name\n"
+send_user "Tellers: $number_of_tellers with a threshold of $threshold_tellers\n"
+send_user "Teller: $teller $teller_ip $teller_main_port $teller_hint_port\n"
+
+if {$teller == 1} {
+  send_user "Voters: $number_of_voters\n"
+  send_user "Voters Import File: $ers_voters\n"
+  send_user "Voters Export File: $ers_associated_voters\n"
+}
+
+# Create the election directory.
+exec mkdir "$election_name"
+cd "$election_name"
+
+# If this is teller 1, create the election parameters.
+if {$teller == 1} {
+  send_user -- "- Create Election Parameters ----------------------------------------------------------------------------------\n"
+  execute_vmv "create-election-parameters --publish public-election-params.csv --name \"$election_name\" --number-of-tellers $number_of_tellers --threshold-tellers $threshold_tellers\r"
+  upload "public-election-params.csv" 1
+}
+
+# Create the teller.
+send_user -- "- Create Teller -----------------------------------------------------------------------------------------------\n"
+download "public-election-params.csv"
+execute_vmv "create-teller --election public-election-params.csv --teller $teller --ip $teller_ip --teller-port $teller_main_port --hint-port $teller_hint_port --publish teller-information-$teller.xml\r"
+upload "teller-information-$teller.xml" 0
+
+# Merge tellers.
+send_user -- "- Merge Tellers -----------------------------------------------------------------------------------------------\n"
+set index 1
+set files ""
+while {$index <= $number_of_tellers} {
+  set file "teller-information-$index.xml"
+  append files "$file "
+  download $file
+  set index [expr $index+1]
+}
+execute_vmv "merge-teller --election public-election-params.csv --teller-information $files --teller $teller\r"
+
+# Create election keys.
+send_user -- "- Create Election Keys ----------------------------------------------------------------------------------------\n"
+execute_vmv "create-election-keys --election public-election-params.csv --output election-keys-$teller.csv --publish public-election-keys-$teller.csv --teller $teller\r"
+upload "election-keys-$teller.csv" 0
+upload "public-election-keys-$teller.csv" 0
+
+# If this is teller 1, create the voters' keys and tracker numbers.
+if {$teller == 1} {
+  send_user -- "- Create Voter Keys -----------------------------------------------------------------------------------------\n"
+  execute_vmv "create-voters-keys --election public-election-params.csv --number-of-voters $number_of_voters --output voters-keys.csv --publish public-voters-keys.csv\r"
+  upload "voters-keys.csv" 0
+  upload "public-voters-keys.csv" 0
+
+  send_user -- "- Create Tracker Numbers ------------------------------------------------------------------------------------\n"
+  execute_vmv "create-tracker-numbers --election public-election-params.csv public-election-keys-$teller.csv --number-of-voters $number_of_voters --publish public-tracker-numbers.csv\r"
+  upload "public-tracker-numbers.csv" 0
+}
+
+# Shuffle the tracker numbers.
+send_user -- "- Shuffle Tracker Numbers -------------------------------------------------------------------------------------\n"
+download "public-tracker-numbers.csv"
+execute_vmv "shuffle-tracker-numbers --election public-election-params.csv --tracker-numbers public-tracker-numbers.csv --publish shuffled-tracker-numbers-$teller.csv shuffle-proofs-$teller.zip --teller $teller\r"
+upload "shuffled-tracker-numbers-$teller.csv" 0
+upload "shuffle-proofs-$teller.zip" 0
+
+# Create commitments.
+send_user -- "- Create Commitments ------------------------------------------------------------------------------------------\n"
+download "public-voters-keys.csv"
+execute_vmv "create-commitments --election public-election-params.csv public-election-keys-$teller.csv --voters public-voters-keys.csv --tracker-numbers shuffled-tracker-numbers-$teller.csv --output commitments-$teller.csv --publish public-commitments-$teller.csv commitments-proofs-$teller.csv\r"
+upload "commitments-$teller.csv" 0
+upload "public-commitments-$teller.csv" 0
+upload "commitments-proofs-$teller.csv" 0
+
+# Decrypt commitments.
+send_user -- "- Decrypt Commitments -----------------------------------------------------------------------------------------\n"
+set index 1
+set files ""
+while {$index <= $number_of_tellers} {
+  set file "public-commitments-$index.csv"
+  append files "$file "
+  download $file
+  set index [expr $index+1]
+}
+execute_vmv "decrypt-commitments --election public-election-params.csv election-keys-$teller.csv --voters public-voters-keys.csv --tracker-numbers shuffled-tracker-numbers-$teller.csv --commitments $files --publish public-voters-$teller.csv decrypt-proofs-$teller.zip --teller $teller\r"
+upload "public-voters-$teller.csv" 0
+upload "decrypt-proofs-$teller.zip" 0
+
+# If this is teller 1, associate the generated data with voters.
+if {$teller == 1} {
+  send_user -- "- Associate Voters ------------------------------------------------------------------------------------------\n"
+  exec cp "../$ers_voters" ers-voters.csv
+  execute_vmv "associate-voters --election public-election-params.csv public-election-keys-$teller.csv --voters public-voters-$teller.csv ers-voters.csv --output ers-associated-voters.csv --publish public-associated-voters.csv\r"
+  exec cp ers-associated-voters.csv "../$ers_associated_voters"
+  upload "public-associated-voters.csv" 0
+}

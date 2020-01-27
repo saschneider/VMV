@@ -1,0 +1,123 @@
+#!/usr/bin/expect --
+
+#
+# Trusted and Transparent Voting Systems: Verify My Vote Demonstrator
+#
+# (c) University of Surrey 2019
+#
+
+#
+# Election common script.
+#
+# Common code for all expect scripts.
+#
+
+# Expect parameters.
+log_user 0
+set timeout -1
+
+#
+# Downloads a file from the SFTP host, waiting for it to become available.
+#
+# @param file The file to download.
+#
+proc download {file} {
+  global ssh_key_file
+  global sftp_user
+  global sftp_host
+  global election_name
+
+  send_user "Downloading: $file"
+
+  spawn sftp -q -o StrictHostKeyChecking=no -i $ssh_key_file $sftp_user@$sftp_host
+  expect "sftp> "
+
+  # Wait for the directory to become available.
+  set available 0
+
+  while {$available <= 0} {
+    send "cd \"$election_name\"\r"
+    expect {
+      "*No such file or directory*sftp> " { send_user "#"; sleep 5 }
+      "sftp> " { set available 1 }
+    }
+  }
+
+  # Wait for the file to become available and download it.
+  set available 0
+
+  while {$available <= 0} {
+    send "get $file\r"
+    expect {
+      "*not found.*sftp> " { send_user "."; sleep 5 }
+      "sftp> " { set available 1 }
+    }
+  }
+
+  send "exit\r"
+  expect eof
+
+  send_user "...done\n"
+}
+
+#
+# Executes a single Private VMV command.
+#
+# @param command The command to execute.
+#
+proc execute_vmv {command} {
+  global jar
+
+  send_user "Executing: $command\n"
+
+  spawn java -jar $jar
+  expect {
+    timeout { send_user "\Timeout executing Private VMV command\n"; exit 1 }
+    eof { send_user "\nFailed to spawn Private VMV\n"; exit 1 }
+    "*stacktrace*VMV:> " { send_user "\nFailed to execute Private VMV command\n"; exit 1 }
+    "VMV:> " {
+      send $command
+      expect "VMV:> "
+      send_user "Output: $expect_out(buffer)"
+      send "exit\r"
+      expect eof
+    }
+  }
+  send_user ""
+}
+
+#
+# Uploads a file to the SFTP host.
+#
+# @param file The local file to be uploaded.
+# @param mkdir 1 if the remote directory should be created.
+#
+proc upload {file mkdir} {
+  global ssh_key_file
+  global sftp_user
+  global sftp_host
+  global election_name
+
+  send_user "Uploading: $file\n"
+
+  spawn sftp -q -o StrictHostKeyChecking=no -i $ssh_key_file $sftp_user@$sftp_host
+  expect "sftp> "
+
+  if {$mkdir >= 1} {
+    send "mkdir \"$election_name\"\r"
+    expect "sftp> "
+  }
+
+  send "cd \"$election_name\"\r"
+  expect "sftp> "
+
+  # Upload the file with a temporary name and then rename it when fully uploaded.
+  send "put $file $file.tmp\r"
+  expect "sftp> "
+
+  send "rename $file.tmp $file\r"
+  expect "sftp> "
+
+  send "exit\r"
+  expect eof
+}
